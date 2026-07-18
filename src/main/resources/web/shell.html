@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+__RM_CSS__
+</style>
+</head>
+<body>
+<div id="content"></div>
+<script>
+__RM_MARKDOWN_JS__
+
+// The read pane is loaded once, empty. Prose arrives later via renderContent so that
+// re-rendering after an edit does not throw the reader back to the top of the document.
+// (Skeleton: mermaid/diagram rendering is deferred, so a ```mermaid fence degrades to its
+// source <pre> rather than a picture.)
+function renderContent(md, focusedId) {
+    const y = window.scrollY;
+    document.getElementById('content').innerHTML = renderMarkdown(md);
+    window.scrollTo(0, y);
+    if (focusedId) {
+        const el = document.getElementById(focusedId);
+        if (el) el.classList.add('active');
+    }
+}
+
+function clearMarkerHighlight() {
+    document.querySelectorAll('.rm-marker').forEach(e => e.classList.remove('active'));
+}
+
+function scrollToMarker(id) {
+    clearMarkerHighlight();
+    const el = document.getElementById(id);
+    if (el) {
+        el.classList.add('active');
+        el.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+}
+
+// rmPost is defined by the plugin AFTER the page loads (a JBCefJSQuery injection), so guard it.
+// Payload is a U+0001-delimited string; that control char never appears in prose.
+function markerTapped(id) {
+    if (window.rmPost) window.rmPost('markerTapped\u0001' + id);
+}
+
+document.addEventListener('mouseup', function() {
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().trim() : '';
+    if (text.length > 0 && window.rmPost) {
+        const section = findSection(sel.anchorNode) || '';
+        window.rmPost('selectionChanged\u0001' + text + '\u0001' + section);
+    }
+});
+
+function findSection(node) {
+    while (node && node !== document.body) {
+        if (node.nodeType === 1 && /^H[1-6]$/.test(node.tagName)) {
+            return node.textContent.trim();
+        }
+        let sib = node.previousElementSibling;
+        while (sib) {
+            if (/^H[1-6]$/.test(sib.tagName)) return sib.textContent.trim();
+            sib = sib.previousElementSibling;
+        }
+        node = node.parentNode;
+    }
+    return '';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<idea-plugin>
+    <id>com.bpineau.remarkmd</id>
+    <name>RemarkMD for JetBrains</name>
+    <vendor email="bernie.pineau@gmail.com">Bernie Pineau</vendor>
+
+    <description><![CDATA[
+        Google-Docs-style commenting for Markdown, where the other reviewer is Claude.
+        Open a <code>.md</code> file, select a passage in the rendered preview, and leave a comment.
+        Comments are stored inside the file itself, as YAML front matter under an <code>mdreview</code>
+        key, anchored to a <code>[^cN]</code> footnote marker in the prose. The file is both the
+        database and the handoff protocol.
+    ]]></description>
+
+    <!-- Platform only: works in every JetBrains IDE. -->
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionPointName="com.intellij">
+        <fileEditorProvider implementation="com.bpineau.remarkmd.editor.RemarkFileEditorProvider"/>
+    </extensions>
+</idea-plugin>
