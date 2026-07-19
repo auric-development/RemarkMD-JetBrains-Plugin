@@ -1,3 +1,5 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.2.0"
@@ -23,6 +25,11 @@ dependencies {
         // much newer IDE (2025.2) trips a product-info parsing bug (Index: 1, Size: 1) in both the
         // `test` and `runIde` tasks. sinceBuild=242 still lets the built plugin run in 2024.2→current.
         intellijIdeaCommunity("2024.2")
+
+        // The IntelliJ Plugin Verifier CLI, resolved from JetBrains' repository (defaultRepositories()
+        // above), so `verifyPlugin` has an executable to run. Without this the task fails immediately
+        // with "No IntelliJ Plugin Verifier executable found".
+        pluginVerifier()
     }
     // Bundled with the plugin (classloader-isolated). SnakeYAML parses/serializes the mdreview block.
     implementation("org.yaml:snakeyaml:2.6")
@@ -61,10 +68,31 @@ intellijPlatform {
             </ul>
         """.trimIndent()
     }
+
+    // `verifyPlugin` runs the JetBrains Plugin Verifier against real IDE builds. We compile against
+    // 2024.2 and declare an open until-build, so we verify against that same 2024.2 baseline — the
+    // lower bound the plugin promises to run on. (recommended() would fan out across many IDE
+    // downloads and, with an open until-build, keep chasing the latest release; pinning keeps the
+    // check deterministic and offline-cache-friendly.)
+    pluginVerification {
+        ides {
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2024.2")
+        }
+    }
 }
 
 kotlin {
     jvmToolchain(21)
+    compilerOptions {
+        // Kotlin's default jvm-default mode emits, in every class that implements an interface with
+        // default methods, a synthetic override bridge that delegates to the interface default. For
+        // CommentsToolWindowFactory (which implements only createToolWindowContent) that produced 12
+        // bridges over ToolWindowFactory's deprecated/experimental/internal defaults (isApplicable,
+        // manage, getAnchor, getIcon, isDoNotActivateOnStart) — bridges we never wrote, that the
+        // Plugin Verifier then flags as our usages. `no-compatibility` inherits the real JVM default
+        // methods instead of re-delegating, so those bridges — and the verifier findings — disappear.
+        freeCompilerArgs.add("-jvm-default=no-compatibility")
+    }
 }
 
 // The IntelliJ Platform Gradle Plugin decorates the built-in `test` task with platform JVM args,

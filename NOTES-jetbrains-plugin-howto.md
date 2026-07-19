@@ -337,9 +337,42 @@ into it), so the read pane needs its own fences. What was added:
   disclosure. Added top-level `LICENSE` (MIT) and `THIRD-PARTY-NOTICES.md` (Mermaid MIT, SnakeYAML
   Apache-2.0). Bumped `snakeyaml` 2.3→2.6. Untracked `.DS_Store` and ignored it plus `.intellijPlatform/`.
 
+## Running the Plugin Verifier headlessly (`verifyPlugin`)
+
+- **The task needs two things declared or it does nothing.** Out of the box `./gradlew verifyPlugin`
+  fails with *"No IntelliJ Plugin Verifier executable found"* — you must add `pluginVerifier()` to the
+  `dependencies { intellijPlatform { … } }` block (it resolves the verifier CLI from
+  `defaultRepositories()`). And you must say *which IDEs* to verify against, in
+  `intellijPlatform { pluginVerification { ides { … } } }`. Import
+  `org.jetbrains.intellij.platform.gradle.IntelliJPlatformType` and pin an exact build —
+  `ide(IntelliJPlatformType.IntellijIdeaCommunity, "2024.2")` — rather than `recommended()`: with an
+  OPEN `untilBuild`, `recommended()` fans out across many IDE downloads and keeps chasing the latest
+  release. Pinning the same 2024.2 we compile against keeps the check deterministic and reuses the
+  already-downloaded SDK. This does NOT launch a GUI (unlike `runIde`), so it is safe to run here.
+- **Read the verdict line, not the exit code.** A "Compatible … N usages of deprecated/experimental/
+  internal API" run is a PASS with warnings; only *Compatibility problems* / *Structure* sections are
+  hard errors. Reports land in `build/reports/pluginVerifier/<IDE>/`.
+- **Kotlin manufactures the "internal API" findings itself, and a compiler flag deletes them.** A
+  Kotlin class implementing an interface with default methods (e.g. `ToolWindowFactory`) gets, for
+  every default method, a synthetic override *bridge* in its bytecode that just `invokespecial`s the
+  interface default — even though your source overrides only one method. The verifier reads those
+  bridges as YOUR usages, so implementing `ToolWindowFactory` (whose `getAnchor`/`getIcon`/`manage`/
+  `isApplicable`/`isDoNotActivateOnStart` defaults are deprecated/experimental/internal) reported 12
+  findings from a 7-line class. `javap -p -c <class>` shows the bridges; they are not in the `.kt`.
+  Adding `freeCompilerArgs.add("-jvm-default=no-compatibility")` under `kotlin { compilerOptions { … } }`
+  makes the class inherit the real JVM default methods instead of re-delegating, the bridges vanish,
+  and the verifier drops to a clean "Compatible" with zero API-usage findings. Safe for a plugin (no
+  external consumers of these classes rely on the compatibility bridges). Verified: rebuild, then
+  `javap -p CommentsToolWindowFactory.class` shows only `createToolWindowContent`.
+- **What the distribution ZIP actually holds.** `build/distributions/<name>-<ver>.zip` is just
+  `<name>/lib/*.jar` — the plugin jar plus bundled runtime deps (here `snakeyaml-2.6.jar`). Everything
+  else (`META-INF/plugin.xml`, `META-INF/pluginIcon.svg`, the whole `web/` tree incl. the 3.4 MB
+  `mermaid.min.js` and `mermaid-license.txt`) is packaged as *resources INSIDE the plugin jar*, not
+  loose in the ZIP. To confirm assets shipped, unzip the ZIP and then `unzip -l` the inner jar.
+
 ## Commands cheat-sheet
 
 - `./gradlew runIde` — sandbox IDE with the plugin.
+- `./gradlew verifyPlugin` — Plugin Verifier (needs `pluginVerifier()` dep + a pinned `pluginVerification.ides` target; see above).
 - `./gradlew buildPlugin` — distributable ZIP in `build/distributions/`.
-- `./gradlew test` — JUnit.
-- `./gradlew verifyPlugin` — structure/compat check.
+- `./gradlew unitTest` — pure-logic JUnit (do NOT use `./gradlew test`; the platform plugin decorates it and crashes).
