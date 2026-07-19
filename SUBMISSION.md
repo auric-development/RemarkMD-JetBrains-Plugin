@@ -43,7 +43,7 @@ only you can perform are called out under **What only you can do** at the end.
 | `change-notes` | Patched in from `build.gradle.kts` `changeNotes` at build time (shown as "What's New") | Set. |
 | `since-build` | `242` (from `ideaVersion.sinceBuild`) | Set. |
 | `until-build` | **Open** (`untilBuild = provider { null }`) | Intentionally unbounded so the build installs on 2024.2 → current, not just the 242.* branch. |
-| logo / icon | `META-INF/pluginIcon.svg` (798 bytes) | Present in the jar. Marketplace uses it as the listing logo. Optionally add `pluginIcon_dark.svg` for dark theme. |
+| logo / icon | `META-INF/pluginIcon.svg` + `META-INF/pluginIcon_dark.svg` | Both present in the jar, original artwork (distinct from the template default, which the approval guidelines require). Marketplace uses them as the listing logo (light/dark). |
 | `<depends>` | `com.intellij.modules.platform` only | Makes it install in every JetBrains IDE, not just IntelliJ IDEA. |
 
 **Compatibility range:** since-build `242` (2024.2) with an open upper bound — i.e. IntelliJ IDEA
@@ -104,8 +104,9 @@ all three is "none, and it is enforced, not merely intended":
 
 JetBrains requires uploaded plugins to be signed. The build is already wired for it — the
 `signPlugin` task is configured from environment variables (see `build.gradle.kts`, the
-`signing { }` block), and the build stays green when they are absent because the providers are
-simply empty until you run `signPlugin`.
+`signing { }` block), the `zipSigner()` CLI dependency is declared (without it `signPlugin` fails
+with "No Marketplace ZIP Signer executable found"), and the build stays green when the env vars are
+absent because the providers are simply empty until you run `signPlugin`.
 
 ### 5a. Generate a certificate + key (one time)
 

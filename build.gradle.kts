@@ -30,6 +30,11 @@ dependencies {
         // above), so `verifyPlugin` has an executable to run. Without this the task fails immediately
         // with "No IntelliJ Plugin Verifier executable found".
         pluginVerifier()
+
+        // The Marketplace ZIP Signer CLI, so `signPlugin` has an executable. Without it, once the
+        // signing env vars are set, `signPlugin` fails with "No Marketplace ZIP Signer executable
+        // found". Costs nothing when signing is not run.
+        zipSigner()
     }
     // Bundled with the plugin (classloader-isolated). SnakeYAML parses/serializes the mdreview block.
     implementation("org.yaml:snakeyaml:2.6")

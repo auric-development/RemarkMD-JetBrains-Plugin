@@ -349,6 +349,12 @@ into it), so the read pane needs its own fences. What was added:
   OPEN `untilBuild`, `recommended()` fans out across many IDE downloads and keeps chasing the latest
   release. Pinning the same 2024.2 we compile against keeps the check deterministic and reuses the
   already-downloaded SDK. This does NOT launch a GUI (unlike `runIde`), so it is safe to run here.
+- **`recommended()` can silently verify ZERO IDEs and still say BUILD SUCCESSFUL** (known issue, Feb
+  2026): when `sinceBuild` targets a platform that has not been publicly released — or when only EAP
+  builds match — `recommended()` resolves to an empty IDE set and skips binary-compatibility analysis
+  entirely, reporting a green build. Never trust the exit code alone: read the log for the resolved
+  count ("Scheduled verifications (N) … Finished N of N"). Pinning an explicit `ide(…, "2024.2")`
+  sidesteps it — ours logs "Scheduled verifications (1) … Compatible".
 - **Read the verdict line, not the exit code.** A "Compatible … N usages of deprecated/experimental/
   internal API" run is a PASS with warnings; only *Compatibility problems* / *Structure* sections are
   hard errors. Reports land in `build/reports/pluginVerifier/<IDE>/`.
@@ -379,6 +385,16 @@ into it), so the read pane needs its own fences. What was added:
   `publishPlugin`, never at configuration time — so `buildPlugin` and `unitTest` build clean with no
   secrets present. Verified: added the blocks, `buildPlugin` + `unitTest` still green with nothing
   exported. This is the whole trick to shipping a signing stub that does not break the normal build.
+- **`signPlugin` needs a `zipSigner()` dependency** in the `intellijPlatform { }` block (like
+  `pluginVerifier()`), or it fails with *"No Marketplace ZIP Signer executable found"*. And note
+  `signPlugin` is **skipped, not errored**, when the cert/key are unset — a misconfig produces an
+  *unsigned* upload rather than a failure, so confirm a `*-signed.zip` actually appeared.
+- **Multi-line PEM env vars break** when pasted into IDE Run Config / CI env panels
+  (`NullPointerException: pemObject must not be null`). Base64-encode the cert/key (Gradle props
+  auto-detect and decode) or use `certificateChainFile`/`privateKeyFile` instead of inline content.
+- **Ship BOTH `META-INF/pluginIcon.svg` and `pluginIcon_dark.svg`** (light/dark), and make them
+  differ from the template's default icon — the approval guidelines require it, and scaffold-and-forget
+  is a common real rejection.
 - **Self-signed cert is fine.** `openssl genpkey -aes-256-cbc -algorithm RSA -out private_encrypted.pem
   -pkeyopt rsa_keygen_bits:4096` → `openssl rsa -in private_encrypted.pem -out private.pem` →
   `openssl req -key private.pem -new -x509 -days 365 -out chain.crt`. JetBrains checks the signature
