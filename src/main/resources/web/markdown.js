@@ -98,11 +98,21 @@ function inline(t) {
     // Images before links: ![alt](src) also matches the link shape, so links would eat it and
     // leave a stray '!' behind — which is exactly what used to happen. No images ever rendered.
     t = t.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, function(_, alt, src) {
-        return hold('<img src="' + escAttr(src) + '" alt="' + escAttr(alt) + '" loading="lazy">');
+        var safe = safeSrc(src);
+        // A disallowed scheme (javascript:, file:, …) is rendered as its literal text rather than
+        // emitted as a live <img>. escAttr does HTML-attribute escaping, NOT URL sanitization, so it
+        // cannot be the safety boundary on its own — this is. Belt-and-braces to the page CSP.
+        if (safe === null) return hold(escHtml('![' + alt + '](' + src + ')'));
+        return hold('<img src="' + escAttr(safe) + '" alt="' + escAttr(alt) + '" loading="lazy">');
     });
 
     t = t.replace(/\[([^\]]*)\]\(([^)]+)\)/g, function(_, text, href) {
-        return hold('<a href="' + escAttr(href) + '">' + escHtml(text) + '</a>');
+        var safe = safeHref(href);
+        // javascript:/data:/vbscript: hrefs are the script-execution vector CSP cannot block (the app
+        // legitimately needs script-src 'unsafe-inline'). Neutralize them to plain text here; the
+        // navigation guard in RemarkPreviewPanel is the second line for anything that slips through.
+        if (safe === null) return hold(escHtml('[' + text + '](' + href + ')'));
+        return hold('<a href="' + escAttr(safe) + '">' + escHtml(text) + '</a>');
     });
 
     t = t.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
@@ -111,6 +121,27 @@ function inline(t) {
     t = t.replace(/_([^_]+)_/g,'<em>$1</em>');
 
     return t.replace(/\u0000(\d+)\u0000/g, function(_, i) { return held[+i]; });
+}
+// URL-scheme allowlists — the safety boundary escAttr is not. Return the url when its scheme is
+// allowed (or it is relative / scheme-less), null to reject it. A leading whitespace/control run
+// cannot be used to smuggle "java\tscript:" past the check because the scheme match is anchored.
+function schemeOf(url) {
+    var m = String(url).match(/^\s*([a-zA-Z][a-zA-Z0-9+.\-]*):/);
+    return m ? m[1].toLowerCase() : null;
+}
+function safeHref(url) {
+    var s = schemeOf(url);
+    if (s === null) return url;                 // relative / anchor / scheme-less
+    if (s === 'http' || s === 'https' || s === 'mailto' || s === 'rmimg') return url;
+    return null;                                // javascript:, data:, vbscript:, file:, …
+}
+function safeSrc(url) {
+    var s = schemeOf(url);
+    if (s === null) return url;                 // relative (already rewritten to rmimg: upstream)
+    // http/https are kept as-is; the page CSP (img-src rmimg: data:) refuses the actual fetch, so a
+    // remote image degrades to a broken-image icon rather than firing an outbound beacon.
+    if (s === 'rmimg' || s === 'data' || s === 'http' || s === 'https') return url;
+    return null;                                // javascript:, file:, …
 }
 function escHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');

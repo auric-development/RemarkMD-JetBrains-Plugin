@@ -16,6 +16,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.ide.BrowserUtil
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefJSQuery
@@ -23,6 +24,8 @@ import org.cef.CefApp
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
+import org.cef.handler.CefRequestHandlerAdapter
+import org.cef.network.CefRequest
 import java.util.concurrent.atomic.AtomicBoolean
 import java.awt.BorderLayout
 import java.time.Instant
@@ -88,6 +91,12 @@ class RemarkPreviewPanel(
             // rmimg: image scheme handler once for the whole CefApp before any page asks for an image.
             ensureImageSchemeRegistered()
 
+            // Confine what that handler may read to this document's folder and its project. A .md is
+            // untrusted, so without this an image src like `../../../etc/passwd` would be served.
+            // Both the folder and the project are trusted so a sibling `../images/` folder resolves.
+            RmImgAccess.allow(imageDirectory)
+            RmImgAccess.allow(project.basePath)
+
             Disposer.register(parent, browser)
             bridge?.let { Disposer.register(parent, it) }
 
@@ -105,6 +114,37 @@ class RemarkPreviewPanel(
             browser.jbCefClient.addLoadHandler(object : CefLoadHandlerAdapter() {
                 override fun onLoadEnd(b: CefBrowser?, frame: CefFrame?, httpStatusCode: Int) {
                     onPageLoaded()
+                }
+            }, browser.cefBrowser)
+
+            // Navigation guard. The shell is loaded once and everything after is executeJavaScript
+            // into the live page, so the page has no business navigating anywhere. A [text](http…)
+            // link in the prose would otherwise replace the whole preview with a remote page loaded
+            // in-process, and a javascript:/data: href would run script in this privileged page — the
+            // one holding the rmPost bridge wired to document mutation. CSP cannot block a top-level
+            // javascript: navigation (script-src must stay 'unsafe-inline'), so this guard is required.
+            // Mirrors the Mac edit window's decidePolicyFor (EditWindowController).
+            browser.jbCefClient.addRequestHandler(object : CefRequestHandlerAdapter() {
+                override fun onBeforeBrowse(
+                    b: CefBrowser?,
+                    frame: CefFrame?,
+                    request: CefRequest?,
+                    userGesture: Boolean,
+                    isRedirect: Boolean,
+                ): Boolean {
+                    // The initial shell load happens before onLoadEnd flips `loaded`; allow it.
+                    if (!loaded) return false
+                    val url = request?.url ?: return true
+                    // A genuine web/mail link opens in the system browser instead of hijacking the
+                    // preview; every other navigation (javascript:, data:, file:, remote html) is
+                    // cancelled outright.
+                    val scheme = url.substringBefore(':', "").lowercase()
+                    if (scheme == "http" || scheme == "https" || scheme == "mailto") {
+                        ApplicationManager.getApplication().invokeLater {
+                            try { BrowserUtil.browse(url) } catch (e: Exception) { /* ignore */ }
+                        }
+                    }
+                    return true // cancel the in-preview navigation in every case
                 }
             }, browser.cefBrowser)
 

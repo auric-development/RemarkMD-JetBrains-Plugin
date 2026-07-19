@@ -2,6 +2,26 @@
 <html>
 <head>
 <meta charset="utf-8">
+<!--
+  Content-Security-Policy — the no-network guarantee. On macOS the read pane runs in a sandboxed
+  WKWebView with no network entitlement; a JetBrains plugin's JCEF process has full network access,
+  so the fence has to live in the page instead. This mirrors the Mac edit shell's CSP discipline
+  (EditShell.cspMeta), adapted to the read pane's needs.
+
+  - default-src 'none'   : no fetch/XHR/WebSocket/frame/etc. This is what stops a crafted document
+                           from opening an outbound channel the moment it is previewed.
+  - script-src           : 'unsafe-inline' is required — markerAnchors emits inline onclick handlers
+                           and the shell/diagram JS is inline. 'unsafe-eval' is required by the
+                           mermaid bundle, which uses the Function constructor internally (a global
+                           bump used at load, plus d3/dagre). Without it every diagram silently
+                           degrades. The mermaid + diagram bundles are injected via CEF
+                           executeJavaScript (not governed by this CSP), but their runtime eval is.
+  - img-src rmimg: data: : admits the plugin's own local-image scheme and mermaid's data: toolbar
+                           assets, and REFUSES remote (http/https) images — closing the
+                           image-beacon exfiltration channel. Do not widen it to http/https.
+  - font-src data:       : any @font-face, same reasoning.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src rmimg: data:; font-src data:;">
 <style>
 __RM_CSS__
 </style>

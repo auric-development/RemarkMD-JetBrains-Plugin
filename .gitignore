@@ -4,3 +4,14 @@ build/
 .idea/
 out/
 .kotlin/
+# IntelliJ Platform Gradle plugin cache — must not be version-controlled.
+.intellijPlatform/
+
+# macOS Finder metadata — build junk, never part of the source tree.
+.DS_Store
+
+# Secrets — never commit. gh_token.txt holds a GitHub token used only locally for pushing.
+gh_token.txt
+*token*.txt
+*.pem
+*.key

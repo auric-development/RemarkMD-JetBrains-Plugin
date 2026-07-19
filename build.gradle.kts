@@ -25,7 +25,7 @@ dependencies {
         intellijIdeaCommunity("2024.2")
     }
     // Bundled with the plugin (classloader-isolated). SnakeYAML parses/serializes the mdreview block.
-    implementation("org.yaml:snakeyaml:2.3")
+    implementation("org.yaml:snakeyaml:2.6")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -43,7 +43,23 @@ intellijPlatform {
     pluginConfiguration {
         ideaVersion {
             sinceBuild = "242"
+            // Leave the upper bound OPEN. The platform plugin otherwise defaults until-build to the
+            // SDK's own branch (242.*), which would make the built plugin REFUSE to install on 2024.3
+            // and every later IDE — the opposite of the "runs in 2024.2→current" intent. The 2.x
+            // idiom for "no upper bound" is a provider that yields null.
+            untilBuild = provider { null }
         }
+        // Shown as "What's New" on the Marketplace listing and patched into plugin.xml at build.
+        // The patcher wraps this in CDATA itself, so the value is HTML without a CDATA wrapper.
+        changeNotes = """
+            <ul>
+              <li>Initial preview: Google-Docs-style Markdown commenting with comments stored in the file's <code>mdreview</code> YAML front matter.</li>
+              <li>Rendered read/comment preview (JCEF) alongside the IDE's Markdown editor, with a comments tool window.</li>
+              <li>Mermaid diagrams and local images in the preview.</li>
+              <li>Copy Open Comments for Claude, for handing a review off to an AI reviewer.</li>
+              <li>Hardened the preview: strict Content-Security-Policy (no network), a navigation guard, URL-scheme allowlisting, and confinement of local image reads to the document's project.</li>
+            </ul>
+        """.trimIndent()
     }
 }
 
