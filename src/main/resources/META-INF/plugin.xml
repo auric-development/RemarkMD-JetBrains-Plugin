@@ -16,5 +16,8 @@
 
     <extensions defaultExtensionPointName="com.intellij">
         <fileEditorProvider implementation="com.bpineau.remarkmd.editor.RemarkFileEditorProvider"/>
+        <toolWindow id="RemarkMD Comments"
+                    anchor="right"
+                    factoryClass="com.bpineau.remarkmd.ui.CommentsToolWindowFactory"/>
     </extensions>
 </idea-plugin>

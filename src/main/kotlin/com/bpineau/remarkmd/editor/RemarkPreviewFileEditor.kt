@@ -21,7 +21,7 @@ class RemarkPreviewFileEditor(
 ) : UserDataHolderBase(), FileEditor {
 
     private val document = FileDocumentManager.getInstance().getDocument(file)
-    private val panel = RemarkPreviewPanel(project, document, this)
+    private val panel = RemarkPreviewPanel(project, file, document, this)
 
     override fun getComponent(): JComponent = panel.component
     override fun getPreferredFocusedComponent(): JComponent = panel.component

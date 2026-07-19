@@ -169,7 +169,31 @@ Gotchas found:
 
 Writing raw control chars (U+0001 as a payload delimiter, U+000C in a `when`) via the editor tools
 silently strips them. Author those as explicit escapes — `''`, `''` — or set the line
-with a small script. Bit me twice; fix is to never type the raw char.
+with a small script. Bit me repeatedly; fix is to never type the raw char.
+
+Worse: a raw control char that *does* survive into a file cannot be fixed with an inline `Bash`
+command containing that char — the approval layer refuses it ("command contains control characters
+that would be hidden in the approval dialog"). Write a **script file** (the editor tool strips the
+char from your source too, so target the byte generically: `chr(1)` in Python, not a typed literal)
+and run the script. Grep with `grep -aP '[\x01]'` afterwards to confirm the raw byte is gone.
+
+## Tool windows and light services (the comments sidebar)
+
+- Register a tool window with `<toolWindow id="…" anchor="right" factoryClass="…"/>` in plugin.xml
+  and a `ToolWindowFactory.createToolWindowContent`. Wrap your panel with
+  `ContentFactory.getInstance().createContent(panel, "", false)` and `content.setDisposer(panel)` so
+  the panel's `dispose()` (and everything registered under it in the Disposer tree) is cleaned up.
+- A `@Service(Service.Level.PROJECT)` class is a **light service**: auto-registered, no plugin.xml
+  entry. Reach it with `project.getService(Foo::class.java)`. Perfect for per-file shared UI state
+  (here: one `DocumentState` per `VirtualFile.url`, observed by both the preview and the sidebar).
+- Track which file is in front with `FileEditorManagerListener.FILE_EDITOR_MANAGER` on
+  `project.messageBus.connect(disposable)`; seed from
+  `FileEditorManager.getInstance(project).selectedFiles.firstOrNull()`. Rebind the per-file
+  `DocumentListener`/state listener on each `selectionChanged` under a fresh child `Disposable`.
+- Two-way link without a scroll bug: keep focus in the shared state and have both panes *observe* it,
+  each rendering from live state pulled fresh — not from the change event's payload. Because a
+  synchronous listener fires the render, adding a comment renders the new marker AND scrolls to it in
+  one pass (the marker exists by the time scroll runs).
 
 ## Extracting web assets from Swift string literals
 
