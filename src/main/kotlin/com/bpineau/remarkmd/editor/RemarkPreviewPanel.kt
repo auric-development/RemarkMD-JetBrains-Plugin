@@ -15,12 +15,15 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.ui.jcef.JBCefApp
 import com.intellij.ui.jcef.JBCefBrowser
 import com.intellij.ui.jcef.JBCefJSQuery
+import org.cef.CefApp
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
+import java.util.concurrent.atomic.AtomicBoolean
 import java.awt.BorderLayout
 import java.time.Instant
 import java.time.temporal.ChronoUnit
@@ -81,6 +84,10 @@ class RemarkPreviewPanel(
                 BorderLayout.CENTER,
             )
         } else {
+            // Constructing the browser has forced JCEF to start, so CefApp exists — register the
+            // rmimg: image scheme handler once for the whole CefApp before any page asks for an image.
+            ensureImageSchemeRegistered()
+
             Disposer.register(parent, browser)
             bridge?.let { Disposer.register(parent, it) }
 
@@ -129,11 +136,16 @@ class RemarkPreviewPanel(
     private fun render() {
         val newBody = document?.text ?: ""
         val newFocus = docState.focusedCommentId
-        val cmds = EditorScript.commands(lastRenderedBody, newBody, lastRenderedFocus, newFocus)
+        // Relative image paths in the prose resolve against the document's own folder.
+        val cmds = EditorScript.commands(lastRenderedBody, newBody, lastRenderedFocus, newFocus, imageDirectory)
         lastRenderedBody = newBody
         lastRenderedFocus = newFocus
         cmds.forEach { runJs(it) }
     }
+
+    // The folder to resolve relative image paths against: the document file's parent. VirtualFile
+    // paths are absolute and '/'-separated, which is exactly what EditorScript expects.
+    private val imageDirectory: String? get() = file.parent?.path
 
     private fun runJs(js: String) {
         val b = browser ?: return
@@ -248,4 +260,26 @@ class RemarkPreviewPanel(
     private fun res(path: String): String =
         javaClass.getResourceAsStream(path)?.readBytes()?.toString(Charsets.UTF_8)
             ?: error("missing resource: $path")
+
+    companion object {
+        private val LOG = Logger.getInstance(RemarkPreviewPanel::class.java)
+
+        // The scheme handler factory lives on the shared CefApp, so it is registered exactly once
+        // for the whole IDE session no matter how many preview panels open.
+        private val imageSchemeRegistered = AtomicBoolean(false)
+
+        private fun ensureImageSchemeRegistered() {
+            if (!imageSchemeRegistered.compareAndSet(false, true)) return
+            try {
+                CefApp.getInstance().registerSchemeHandlerFactory(
+                    EditorScript.IMAGE_SCHEME, "local", RmImgSchemeHandlerFactory(),
+                )
+            } catch (e: Throwable) {
+                // A failure here only means local images stay blank (they degrade to a broken-image
+                // icon); it must not take the preview down. Allow a later panel to retry.
+                imageSchemeRegistered.set(false)
+                LOG.warn("Could not register the rmimg: image scheme handler", e)
+            }
+        }
+    }
 }

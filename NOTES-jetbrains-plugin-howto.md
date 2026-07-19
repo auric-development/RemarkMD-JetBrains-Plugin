@@ -256,6 +256,46 @@ Swift is `md.split('\n')` in the shipped `.js`. Verified by grepping for stray `
   raw char, fix a mangled one with a python script that writes `'\\u0001'`, and `cat -v` to confirm
   you see `\u0001` and not `^A`.
 
+## Local images in the JCEF preview (`rmimg:` scheme)
+
+- **Same constraint as WKWebView: JCEF will not load `file:` subresources from a page loaded via
+  `loadHTML`.** So `<img src="file://…">` renders blank. The Mac app answered this (and its sandbox)
+  with a custom `rmimg:` scheme served in Swift; the plugin does the same in Kotlin. The renderer is
+  never touched — `EditorScript.rewritingImages` rewrites `![alt](../x.jpg)` to
+  `![alt](rmimg://local/<abs-path>)` *before* `markerAnchors`, so `markdown.js` only ever emits
+  `<img>` tags the plugin can serve.
+- **Register the scheme on the shared `CefApp`, once per IDE session, not per browser.**
+  `CefApp.getInstance().registerSchemeHandlerFactory("rmimg", "local", factory)`. Guard it with an
+  `AtomicBoolean` in a companion object. Constructing a `JBCefBrowser()` has already forced JCEF to
+  start, so `CefApp.getInstance()` is safe to call right after — register there, before the first
+  page render asks for an image. Wrap in `try/catch(Throwable)` and reset the flag on failure so a
+  later panel retries; a registration failure must only blank the images, never take the preview down.
+- **The CEF resource protocol is a 4-method pull, not a push.** Implement `CefResourceHandler`
+  (or extend `CefResourceHandlerAdapter`): `processRequest` reads the whole file into a `ByteArray`
+  and calls `callback.Continue()` (return `true` = "I will answer"); `getResponseHeaders` sets
+  `response.mimeType`/`response.status` and `responseLength.set(size)`; `readResponse` copies the
+  next chunk into the `dataOut` buffer up to `bytesToRead`, advances an offset, `bytesRead.set(n)`,
+  returns `true` while bytes remain and `false` at EOF; `cancel` is a no-op when the bytes are in
+  memory. All four live in `jcef` (the JBR module) under `org.cef.*`; `IntRef`/`StringRef` are
+  `org.cef.misc`.
+- **The `org.cef` API is inside the JBR, not a jar.** To read signatures locally:
+  `jimage extract --dir /tmp/x <sdk>/jbr/Contents/Home/lib/modules` then `javap` the class
+  (e.g. `org/cef/handler/CefResourceHandler.class`). Use the system `jimage` (JDK 21) — the JBR
+  ships no `bin/jimage`.
+- **URL build/parse parity with the Mac app's `URLComponents`:** `URI(scheme, host, path, fragment)`
+  percent-encodes the path (spaces → `%20`) and keeps `/` as separators; `URI(url).path` decodes it
+  back. `EditorScript.jsonEncode` does *not* escape `/`, so the `rmimg://…` src reaches the page
+  intact (matching the Mac app's `withoutEscapingSlashes`).
+- **SECURITY choice, for the security stage to weigh (documented per task):** unlike the sandboxed
+  Mac app (which served only user-granted folders), the plugin serves **any** file the resolved
+  `rmimg:` path names — a JetBrains plugin runs unsandboxed with the user's full FS rights, matching
+  how the IDE itself reads files. Hardening applied now is path hygiene only: `fileForImageUrl`
+  `normalize()`s the path (collapsing `..`) and the handler serves a file only if it `isFile &&
+  canRead()`, returning an empty 404 otherwise. There is **no** directory allow-list yet — a
+  malicious document could name `rmimg://local/etc/passwd` and the handler would stream it into an
+  `<img>` (from which bytes are not readable back by the page, but existence/size is observable). If
+  the security stage wants it, gate reads to the document's own directory subtree.
+
 ## Commands cheat-sheet
 
 - `./gradlew runIde` — sandbox IDE with the plugin.
