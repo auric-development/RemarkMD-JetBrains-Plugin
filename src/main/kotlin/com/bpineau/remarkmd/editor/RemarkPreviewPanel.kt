@@ -143,12 +143,27 @@ class RemarkPreviewPanel(
 
     private fun onPageLoaded() {
         val b = browser ?: return
+        // onLoadEnd can fire more than once (subframes, re-layout). The shell is loaded exactly once
+        // and injection is expensive (a 3.4 MB bundle), so do all of this on the first call only.
+        if (loaded) return
+
         val q = bridge
         if (q != null) {
             // Define window.rmPost so the page can call back into the plugin.
             val inject = "window.rmPost = function(p) { ${q.inject("p")} };"
             b.cefBrowser.executeJavaScript(inject, b.cefBrowser.url, 0)
         }
+
+        // Mermaid, then diagram.js — as RAW JS via executeJavaScript, BEFORE the first render is
+        // flushed below. Two reasons this is not interpolated into shell.html like markdown.js:
+        // the bundle is 3.4 MB and a single literal `</script>` inside its minified body would close
+        // the shell's own <script> and take the page with it; and diagram.js depends on window.mermaid
+        // being in place first. executeJavaScript takes a raw string, so the `</script>` hazard does
+        // not apply here. renderContent (defined in the shell) references renderDiagrams /
+        // closeDiagramOverlay lazily, so it is fine that they land after the shell's own script ran.
+        b.cefBrowser.executeJavaScript(mermaidBundle, b.cefBrowser.url, 0)
+        b.cefBrowser.executeJavaScript(diagramJs, b.cefBrowser.url, 0)
+
         loaded = true
         val pendingJs = queued.toList()
         queued.clear()
@@ -219,11 +234,18 @@ class RemarkPreviewPanel(
     // MARK: - Shell assembly
 
     private fun buildShellHtml(): String {
-        fun res(path: String): String =
-            javaClass.getResourceAsStream(path)?.readBytes()?.toString(Charsets.UTF_8)
-                ?: error("missing resource: $path")
         return res("/web/shell.html")
             .replace("__RM_CSS__", res("/web/editor.css"))
             .replace("__RM_MARKDOWN_JS__", res("/web/markdown.js"))
     }
+
+    // The 3.4 MB mermaid IIFE (publishes window.mermaid) and the diagram driver. Read once, lazily,
+    // and injected raw at onLoadEnd. If the bundle resource is ever missing the diagrams simply
+    // degrade to their <pre> source — diagram.js guards on window.mermaid — so this must not throw.
+    private val mermaidBundle: String by lazy { res("/web/mermaid.min.js") }
+    private val diagramJs: String by lazy { res("/web/diagram.js") }
+
+    private fun res(path: String): String =
+        javaClass.getResourceAsStream(path)?.readBytes()?.toString(Charsets.UTF_8)
+            ?: error("missing resource: $path")
 }

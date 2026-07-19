@@ -1,0 +1,71 @@
+Mermaid — bundled diagram renderer
+==================================
+
+Provenance
+----------
+Package:       mermaid
+Version:       11.16.0
+File:          dist/mermaid.min.js
+Source URL:    https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.min.js
+Retrieved:     2026-07-13
+Size:          3,565,102 bytes
+sha256:        74d7c46dabca328c2294733910a8aa1ed0c37451776e8d5295da38a2b758fb9b
+Project home:  https://github.com/mermaid-js/mermaid
+
+Why this file is checked in
+--------------------------
+RemarkMD renders documents offline, in a sandboxed WKWebView with no page network
+access. The `dist/mermaid.min.js` build is a standalone IIFE with every diagram
+type inlined and no dynamic import(), so it runs with nothing to fetch. Mermaid's
+smaller ESM entry point lazy-loads its diagram chunks over the network and is
+therefore unusable here.
+
+The bundle's last line publishes the global the app depends on:
+
+    globalThis["mermaid"] = globalThis.__esbuild_esm_mermaid_nm["mermaid"].default;
+
+Upgrading: replace mermaid.min.js, then update the version, date, size and sha256
+above. Verify the global assignment above still exists — the app guards on
+`window.mermaid` and degrades to showing diagram source without it.
+
+Out of scope by nature: ELK layout (a separate package) and remote icon packs
+(they fetch at render time).
+
+License — Mermaid
+-----------------
+The MIT License (MIT)
+
+Copyright (c) 2014 - 2022 Knut Sveidqvist
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Bundled dependencies
+--------------------
+mermaid.min.js inlines its dependency tree. Their license notices are preserved
+verbatim in the comment banner at the end of the minified file; that banner is the
+authoritative list and travels with the code. Notable among them:
+
+  DOMPurify (Cure53) — dual-licensed Apache-2.0 OR MPL-2.0.
+    https://github.com/cure53/DOMPurify
+    Mermaid sanitizes rendered SVG through DOMPurify. RemarkMD additionally
+    initializes mermaid with securityLevel: 'strict'.
+
+  d3, dagre, cytoscape, khroma, marked, and others — MIT or ISC.
+
+See the license banner at the tail of mermaid.min.js for the complete set.

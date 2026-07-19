@@ -168,7 +168,7 @@ Gotchas found:
 ## Passing control characters through the tools (meta-gotcha, not JetBrains)
 
 Writing raw control chars (U+0001 as a payload delimiter, U+000C in a `when`) via the editor tools
-silently strips them. Author those as explicit escapes — `''`, `''` — or set the line
+silently strips them. Author those as explicit escapes — `'\u0001'`, `''` — or set the line
 with a small script. Bit me repeatedly; fix is to never type the raw char.
 
 Worse: a raw control char that *does* survive into a file cannot be fixed with an inline `Bash`
@@ -225,6 +225,36 @@ Swift is `md.split('\n')` in the shipped `.js`. Verified by grepping for stray `
   work off the EDT.
 - Clipboard: `CopyPasteManager.getInstance().setContents(StringSelection(text))` — the platform
   wrapper, not `java.awt.Toolkit`. Same call from an action and from a Swing button in the sidebar.
+
+## Mermaid diagrams in the JCEF preview
+
+- Provenance/license: `web/mermaid.min.js` is mermaid **11.16.0**, `dist/mermaid.min.js`
+  (standalone IIFE, no dynamic `import()`, publishes `window.mermaid`), 3,565,102 bytes, sha256
+  `74d7c46d…758fb9b`, from jsdelivr 2026-07-13. It and `web/mermaid-license.txt` are copied
+  verbatim from the Mac app's `Web/`. The smaller ESM entry lazy-loads chunks over the network and
+  is unusable offline — use the `dist` IIFE.
+- `diagram.js` is extracted from the Swift `diagramJS` literal (`EditorView.swift`) the same way
+  the renderer was: `\\` → `\`, nothing else (checked — no single-backslash Swift escapes in it).
+  `node --check diagram.js` confirms it parses.
+- **Inject the bundle and diagram.js as RAW JS at `onLoadEnd`, before flushing the render queue —
+  do NOT interpolate them into the shell HTML.** Two reasons: the 3.4 MB minified bundle contains
+  literal `</script>` which would close the shell's own `<script>` and kill the page (the exact
+  hazard that made the Mac app use a `WKUserScript`); and `executeJavaScript` takes a raw string so
+  that hazard doesn't apply there. `renderContent` (in the shell) references `renderDiagrams` /
+  `closeDiagramOverlay` lazily and guards on `window.*`, so it's fine they land after the shell's
+  own script ran, and it degrades to `<pre>` source if the bundle is ever absent.
+- Guard the injection: `onLoadEnd` can fire more than once, so gate all of onPageLoaded on the
+  `loaded` flag (`if (loaded) return`) or you re-inject 3.4 MB per subframe layout.
+- `renderContent` must call `renderDiagrams(...)` **before** restoring `scrollY`, not after —
+  otherwise every diagram is briefly a short `<pre>`, the page is a fraction of its height, and
+  `scrollTo` clamps the reader toward the top. The `#rm-overlay` div is a **sibling** of `#content`
+  (innerHTML swaps must not touch it); `closeDiagramOverlay()` runs on every render and scroll
+  because the overlay holds a clone whose arrow/gradient ids point into content about to be
+  destroyed.
+- The editing tools **silently strip a raw U+0001** from a Write/Edit, so shell.html's `\u0001`
+  delimiters in the `rmPost(...)` calls got eaten. Write the escape TEXT `\u0001` (6 chars) not the
+  raw char, fix a mangled one with a python script that writes `'\\u0001'`, and `cat -v` to confirm
+  you see `\u0001` and not `^A`.
 
 ## Commands cheat-sheet
 

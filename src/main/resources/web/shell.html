@@ -8,17 +8,39 @@ __RM_CSS__
 </head>
 <body>
 <div id="content"></div>
+<div id="rm-overlay" hidden></div>
 <script>
 __RM_MARKDOWN_JS__
 
 // The read pane is loaded once, empty. Prose arrives later via renderContent so that
 // re-rendering after an edit does not throw the reader back to the top of the document.
-// (Skeleton: mermaid/diagram rendering is deferred, so a ```mermaid fence degrades to its
-// source <pre> rather than a picture.)
+//
+// The mermaid bundle (window.mermaid) and diagram.js (renderDiagrams, closeDiagramOverlay,
+// openDiagramOverlay, …) are injected as raw JS by the plugin at onLoadEnd, BEFORE the first
+// render is flushed. So a ```mermaid fence renders as a diagram; without the bundle the fence
+// degrades to its source <pre>. renderContent/scrollToMarker below reference those globals at
+// call time, by which point they exist.
 function renderContent(md, focusedId) {
+    // The overlay holds a CLONE of a diagram in #content, and that clone's arrows and gradients are
+    // id references into the very content this swap is about to destroy. Close it first.
+    if (window.closeDiagramOverlay) closeDiagramOverlay();
+
+    // Swapping innerHTML holds the scroll offset where reloading the page cannot. Restoring
+    // scrollY explicitly covers the instant the old content is gone and the body height
+    // collapses, which would otherwise clamp the offset to the top.
     const y = window.scrollY;
     document.getElementById('content').innerHTML = renderMarkdown(md);
+
+    // BEFORE the scroll is restored, not after. renderDiagrams' first pass is synchronous: it puts
+    // every already-rendered diagram back at the exact height it had a moment ago. Do it afterwards
+    // instead and, for the instant in between, every diagram in the document is a short <pre> — a
+    // diagram-heavy page is briefly a fraction of its real height, and scrollTo clamps the reader's
+    // offset against THAT. They get thrown toward the top, which is the precise bug this whole
+    // render-into-a-live-page design exists to prevent.
+    if (window.renderDiagrams) renderDiagrams(document.getElementById('content'));
+
     window.scrollTo(0, y);
+    // The highlight lives on an element that has just been replaced, so re-apply it.
     if (focusedId) {
         const el = document.getElementById(focusedId);
         if (el) el.classList.add('active');
@@ -30,6 +52,8 @@ function clearMarkerHighlight() {
 }
 
 function scrollToMarker(id) {
+    // Scrolling to a comment behind a full-pane overlay would happen where nobody can see it.
+    if (window.closeDiagramOverlay) closeDiagramOverlay();
     clearMarkerHighlight();
     const el = document.getElementById(id);
     if (el) {
@@ -41,7 +65,7 @@ function scrollToMarker(id) {
 // rmPost is defined by the plugin AFTER the page loads (a JBCefJSQuery injection), so guard it.
 // Payload is a U+0001-delimited string; that control char never appears in prose.
 function markerTapped(id) {
-    if (window.rmPost) window.rmPost('markerTapped\u0001' + id);
+    if (window.rmPost) window.rmPost('markerTapped' + '\u0001' + id);
 }
 
 document.addEventListener('mouseup', function() {
@@ -49,7 +73,7 @@ document.addEventListener('mouseup', function() {
     const text = sel ? sel.toString().trim() : '';
     if (text.length > 0 && window.rmPost) {
         const section = findSection(sel.anchorNode) || '';
-        window.rmPost('selectionChanged\u0001' + text + '\u0001' + section);
+        window.rmPost('selectionChanged' + '\u0001' + text + '\u0001' + section);
     }
 });
 
