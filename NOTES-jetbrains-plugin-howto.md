@@ -370,9 +370,32 @@ into it), so the read pane needs its own fences. What was added:
   `mermaid.min.js` and `mermaid-license.txt`) is packaged as *resources INSIDE the plugin jar*, not
   loose in the ZIP. To confirm assets shipped, unzip the ZIP and then `unzip -l` the inner jar.
 
+## Marketplace submission (signing + publishing)
+
+- **Signing is mandatory for upload, and env-var config keeps the build green without secrets.** In
+  the 2.x platform plugin, configure `intellijPlatform { signing { certificateChain / privateKey /
+  password }; publishing { token; channels } }`, binding each to `providers.environmentVariable("…")`.
+  A provider for an UNSET env var is simply empty — it is only *consumed* when you run `signPlugin` /
+  `publishPlugin`, never at configuration time — so `buildPlugin` and `unitTest` build clean with no
+  secrets present. Verified: added the blocks, `buildPlugin` + `unitTest` still green with nothing
+  exported. This is the whole trick to shipping a signing stub that does not break the normal build.
+- **Self-signed cert is fine.** `openssl genpkey -aes-256-cbc -algorithm RSA -out private_encrypted.pem
+  -pkeyopt rsa_keygen_bits:4096` → `openssl rsa -in private_encrypted.pem -out private.pem` →
+  `openssl req -key private.pem -new -x509 -days 365 -out chain.crt`. JetBrains checks the signature
+  against the cert you upload; no CA needed. Then `CERTIFICATE_CHAIN="$(cat chain.crt)"`,
+  `PRIVATE_KEY="$(cat private.pem)"`, `PRIVATE_KEY_PASSWORD=…`, `./gradlew signPlugin`. Keep the PEMs
+  out of git (`.gitignore` already excludes `*.pem`/`*.key`/`*token*.txt`).
+- **First upload is manual and moderated; later ones can be `publishPlugin`.** JetBrains docs are
+  explicit: "The first plugin publication must always be uploaded manually" — via
+  https://plugins.jetbrains.com/author/me → Add new plugin, uploading the *signed* ZIP. A brand-new
+  vendor's first plugin sits in human moderation (~2 business days). After approval, `publishPlugin`
+  with `PUBLISH_TOKEN` (Account → My Tokens) automates updates. Full checklist lives in `SUBMISSION.md`.
+
 ## Commands cheat-sheet
 
 - `./gradlew runIde` — sandbox IDE with the plugin.
 - `./gradlew verifyPlugin` — Plugin Verifier (needs `pluginVerifier()` dep + a pinned `pluginVerification.ides` target; see above).
 - `./gradlew buildPlugin` — distributable ZIP in `build/distributions/`.
 - `./gradlew unitTest` — pure-logic JUnit (do NOT use `./gradlew test`; the platform plugin decorates it and crashes).
+- `./gradlew signPlugin` — signs the ZIP (needs `CERTIFICATE_CHAIN`/`PRIVATE_KEY`/`PRIVATE_KEY_PASSWORD`).
+- `./gradlew publishPlugin` — pushes an update to the Marketplace (needs `PUBLISH_TOKEN`; not for the first upload).

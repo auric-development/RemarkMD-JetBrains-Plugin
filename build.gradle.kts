@@ -69,6 +69,33 @@ intellijPlatform {
         """.trimIndent()
     }
 
+    // Signing & publishing are OPT-IN through environment variables. Each property is bound to a
+    // `providers.environmentVariable(...)` provider, which is simply empty when the variable is
+    // unset — so `buildPlugin` and `unitTest` (which never run `signPlugin`/`publishPlugin`) build
+    // green with no secrets present. The values are consumed only when you actually invoke
+    // `./gradlew signPlugin` or `./gradlew publishPlugin`; a missing value fails at that point, not
+    // at configuration time, and never in day-to-day builds. See SUBMISSION.md for how to generate
+    // the certificate chain / private key and obtain a Marketplace PUBLISH_TOKEN.
+    //   CERTIFICATE_CHAIN     — the signing certificate chain (PEM text; base64 or a data: URI is
+    //                           also accepted for multi-line safety in CI secret fields)
+    //   PRIVATE_KEY           — the matching private key (PEM text; base64/data: URI accepted)
+    //   PRIVATE_KEY_PASSWORD  — the password protecting the private key
+    //   PUBLISH_TOKEN         — Marketplace token (Account → My Tokens); NOT needed for the manual
+    //                           first upload, only for later `publishPlugin` automation.
+    signing {
+        certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
+        privateKey = providers.environmentVariable("PRIVATE_KEY")
+        password = providers.environmentVariable("PRIVATE_KEY_PASSWORD")
+    }
+    publishing {
+        token = providers.environmentVariable("PUBLISH_TOKEN")
+        // Marketplace release channel. Empty/"default" is the public stable channel; set e.g.
+        // PUBLISH_CHANNEL=beta to push a pre-release build to a custom channel instead.
+        channels = providers.environmentVariable("PUBLISH_CHANNEL")
+            .map { listOf(it) }
+            .orElse(listOf("default"))
+    }
+
     // `verifyPlugin` runs the JetBrains Plugin Verifier against real IDE builds. We compile against
     // 2024.2 and declare an open until-build, so we verify against that same 2024.2 baseline — the
     // lower bound the plugin promises to run on. (recommended() would fan out across many IDE
