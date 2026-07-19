@@ -210,6 +210,22 @@ Swift is `md.split('\n')` in the shipped `.js`. Verified by grepping for stray `
 - Dump with `DumperOptions { defaultFlowStyle = BLOCK }`; omit null optionals from the map to mirror
   how Codable/Yams drops nils. Use snake_case keys explicitly (`resolved_by`, not `resolvedBy`).
 
+## Actions, shortcuts and the clipboard
+
+- An `<action>` goes in a top-level `<actions>` block in plugin.xml (a sibling of `<extensions>`,
+  NOT inside it). `id`, `class`, `text`, `description` on the element; nest `<add-to-group
+  group-id="EditorPopupMenu" anchor="last"/>` to reach the editor context menu, and one
+  `<keyboard-shortcut>` per keymap.
+- **The Mac app's ⌘⇧K is already `Push` in JetBrains IDEs** — binding to it silently loses to VCS.
+  `Cmd+Alt+Shift+K` (`meta alt shift K`) on the `Mac OS X 10.5+` keymap and `Ctrl+Alt+Shift+K`
+  (`control alt shift K`) on `$default` are free; that is what `CopyForClaudeAction` uses.
+- An action that reads a `Document` in `update()` (e.g. to enable only when there is work to do)
+  should return `ActionUpdateThread.BGT` from `getActionUpdateThread()` — parsing on the EDT is what
+  the platform warns about. `e.getData(CommonDataKeys.VIRTUAL_FILE)` and `FileDocumentManager` both
+  work off the EDT.
+- Clipboard: `CopyPasteManager.getInstance().setContents(StringSelection(text))` — the platform
+  wrapper, not `java.awt.Toolkit`. Same call from an action and from a Swing button in the sidebar.
+
 ## Commands cheat-sheet
 
 - `./gradlew runIde` — sandbox IDE with the plugin.

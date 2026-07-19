@@ -20,4 +20,18 @@
                     anchor="right"
                     factoryClass="com.bpineau.remarkmd.ui.CommentsToolWindowFactory"/>
     </extensions>
+
+    <actions>
+        <!-- Copy the open review comments (path + [^cN] ids + instructions + threads) for pasting
+             into Claude. The Mac app binds this to Cmd+Shift+K, which is Push in JetBrains IDEs;
+             Cmd+Alt+Shift+K (Ctrl+Alt+Shift+K elsewhere) is free, so we use that instead. -->
+        <action id="com.bpineau.remarkmd.CopyForClaude"
+                class="com.bpineau.remarkmd.action.CopyForClaudeAction"
+                text="Copy Open Comments for Claude"
+                description="Copy the file's open review comments, with ids and instructions, to the clipboard for Claude.">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="control alt shift K"/>
+            <keyboard-shortcut keymap="Mac OS X 10.5+" first-keystroke="meta alt shift K"/>
+        </action>
+    </actions>
 </idea-plugin>

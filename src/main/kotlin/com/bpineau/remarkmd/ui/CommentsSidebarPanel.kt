@@ -1,6 +1,7 @@
 package com.bpineau.remarkmd.ui
 
 import com.bpineau.remarkmd.core.BrokenFrontMatter
+import com.bpineau.remarkmd.core.ClaudeExport
 import com.bpineau.remarkmd.core.CommentCardModel
 import com.bpineau.remarkmd.core.CommentStatus
 import com.bpineau.remarkmd.core.DocumentParser
@@ -17,6 +18,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent
 import com.intellij.openapi.fileEditor.FileEditorManagerListener
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.util.Disposer
@@ -31,6 +33,7 @@ import java.awt.Component
 import java.awt.Dimension
 import java.awt.FlowLayout
 import java.awt.Font
+import java.awt.datatransfer.StringSelection
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import javax.swing.BorderFactory
@@ -52,6 +55,11 @@ import javax.swing.JPanel
 class CommentsSidebarPanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
 
     private val showResolvedCheck = JBCheckBox("Show resolved", false)
+    private val copyForClaudeButton = JButton("Copy for Claude").apply {
+        putClientProperty("ActionToolbar.smallVariant", true)
+        isFocusable = false
+        toolTipText = "Copy the open comments (path, ids, instructions, threads) for pasting into Claude"
+    }
     private val cardsContainer = JPanel()
 
     private var currentFile: VirtualFile? = null
@@ -66,12 +74,18 @@ class CommentsSidebarPanel(private val project: Project) : JPanel(BorderLayout()
 
     init {
         val title = JBLabel("Comments").apply { font = font.deriveFont(Font.BOLD) }
+        val headerEast = JPanel(FlowLayout(FlowLayout.RIGHT, 6, 0)).apply {
+            isOpaque = false
+            add(copyForClaudeButton)
+            add(showResolvedCheck)
+        }
         val header = JPanel(BorderLayout()).apply {
             border = JBUI.Borders.empty(6, 8)
             add(title, BorderLayout.WEST)
-            add(showResolvedCheck, BorderLayout.EAST)
+            add(headerEast, BorderLayout.EAST)
         }
         showResolvedCheck.addActionListener { refresh() }
+        copyForClaudeButton.addActionListener { onCopyForClaude() }
 
         cardsContainer.layout = BoxLayout(cardsContainer, BoxLayout.Y_AXIS)
         cardsContainer.border = JBUI.Borders.empty(4)
@@ -136,11 +150,13 @@ class CommentsSidebarPanel(private val project: Project) : JPanel(BorderLayout()
     private fun refresh() {
         cardsContainer.removeAll()
         val doc = currentDocument
+        copyForClaudeButton.isEnabled = false
 
         if (currentFile == null || doc == null) {
             cardsContainer.add(messageLabel("Open a Markdown file to see its comments."))
         } else {
             val parsed = DocumentParser.parse(doc.text)
+            copyForClaudeButton.isEnabled = parsed.openComments.isNotEmpty()
             parsed.brokenFrontMatter?.let { cardsContainer.add(brokenBanner(it)) }
 
             val cards = SidebarModel.buildCards(parsed, showResolvedCheck.isSelected)
@@ -251,6 +267,14 @@ class CommentsSidebarPanel(private val project: Project) : JPanel(BorderLayout()
 
     private fun onReopen(id: String, doc: Document) {
         CommentActions.reopen(project, doc, id)
+    }
+
+    /** Build the ⌘⇧K handoff for the current file and put it on the clipboard. */
+    private fun onCopyForClaude() {
+        val doc = currentDocument ?: return
+        val parsed = DocumentParser.parse(doc.text)
+        val payload = ClaudeExport.openComments(parsed, currentFile?.path) ?: return
+        CopyPasteManager.getInstance().setContents(StringSelection(payload))
     }
 
     private fun onDelete(id: String, doc: Document) {
